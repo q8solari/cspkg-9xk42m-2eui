@@ -43,24 +43,27 @@ class CimaNowProvider : MainAPI() {
     private val defaultHeaders = mapOf("User-Agent" to userAgent, "Referer" to "$mainUrl/")
 
     override val mainPage = mainPageOf(
-        "$apiBase/home" to "Latest",
-        "$mainUrl/" to "CimaNow"
+        "$mainUrl/" to "CimaNow",
+        "$mainUrl/movies/" to "Movies",
+        "$mainUrl/series/" to "Series",
+        "$mainUrl/category/movies/" to "Movies",
+        "$mainUrl/category/series/" to "Series",
+        "$mainUrl/episodes/" to "Episodes",
+        "$mainUrl/watch/" to "Latest"
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        if (request.data.startsWith(apiBase)) {
-            runCatching {
-                val home = app.get(request.data, headers = defaultHeaders).parsed<ApiHome>()
-                val sections = home.sections.mapNotNull { section ->
-                    val items = section.items.mapNotNull { it.toSearchResponse() }
-                    if (items.isEmpty()) null else HomePageList(section.name, items)
-                }
-                if (sections.isNotEmpty()) return newHomePageResponse(sections)
-            }.onFailure { log("API home failed: ${it.message}") }
-        }
+        runCatching {
+            val home = app.get("$apiBase/home", headers = defaultHeaders).parsed<ApiHome>()
+            val sections = home.sections.mapNotNull { section ->
+                val items = section.items.mapNotNull { it.toSearchResponse() }
+                if (items.isEmpty()) null else HomePageList(section.name, items)
+            }
+            if (sections.isNotEmpty()) return newHomePageResponse(sections)
+        }.onFailure { log("API home failed: ${it.message}") }
 
-        val doc = getDocument("$mainUrl/")
-        val sections = extractHomeSections(doc)
+        val doc = getDocument(if (page > 1) appendPage(request.data, page) else request.data)
+        val sections = extractHomeSections(doc, request.name)
         return newHomePageResponse(sections)
     }
 
@@ -194,36 +197,51 @@ class CimaNowProvider : MainAPI() {
     private suspend fun getDocument(url: String): Document =
         app.get(url, headers = defaultHeaders).document
 
-    private fun extractHomeSections(doc: Document): List<HomePageList> {
-        val sections = doc.select("section, .section, .Block, .block, .widget, .MovieList, .Grid--WecimaPosts")
+    private fun extractHomeSections(doc: Document, fallbackName: String = "CimaNow"): List<HomePageList> {
+        val sections = doc.select("section, .section, .Block, .block, .widget, .MovieList, .Grid--WecimaPosts, .row, .container")
             .mapNotNull { section ->
-                val name = section.selectFirst("h1, h2, h3, .title, .BlockTitle")?.text()?.trim()
+                val name = section.selectFirst("h1, h2, h3, h4, .title, .Title, .BlockTitle, .section-title")?.text()?.trim()
                     ?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
                 val items = parseCards(Jsoup.parse(section.outerHtml())).take(30)
                 if (items.isEmpty()) null else HomePageList(name, items)
             }
         return sections.ifEmpty {
-            parseCards(doc).take(40).let { if (it.isEmpty()) emptyList() else listOf(HomePageList("CimaNow", it)) }
+            parseCards(doc).take(40).let { if (it.isEmpty()) emptyList() else listOf(HomePageList(fallbackName, it)) }
         }
     }
 
     private fun parseCards(doc: Document): List<SearchResponse> {
         val selectors = listOf(
+            ".movie a[href], .post a[href], .item a[href], .GridItem a[href], .Thumb--GridItem a[href]",
+            ".MovieBlock a[href], .MovieItem a[href], .SeriesBlock a[href], .EpisodeBlock a[href]",
+            ".poster a[href], .thumb a[href], .thumbnail a[href], .content-box a[href]",
+            "article a[href], li a[href], div[class*=movie] a[href], div[class*=post] a[href], div[class*=item] a[href]",
             "a[href][title]",
-            ".movie a[href], .post a[href], .item a[href], .GridItem a[href], .Thumb--GridItem a[href]"
+            "a[href]"
         )
-        return selectors.flatMap { doc.select(it) }.mapNotNull { cardToSearch(it) }.distinctBy { it.url }
+        return selectors.flatMap { doc.select(it) }
+            .mapNotNull { cardToSearch(it) }
+            .filterNot { it.name.equals("CimaNow", true) || it.name.length < 2 }
+            .distinctBy { it.url }
     }
 
     private fun cardToSearch(element: Element): SearchResponse? {
         val href = getHref(element) ?: return null
         if (href.contains("#") || href.contains("javascript:")) return null
-        val text = element.attr("title").ifBlank { element.text() }
+        if (!looksLikeTitleUrl(href)) return null
+        val text = element.attr("title")
+            .ifBlank { element.selectFirst("img")?.attr("alt").orEmpty() }
+            .ifBlank { element.selectFirst(".title, .Title, h2, h3, h4")?.text().orEmpty() }
+            .ifBlank { element.text() }
         val title = cleanTitle(text).takeIf { it.length > 1 } ?: return null
         val poster = element.selectFirst("img")?.let { img ->
-            img.attr("data-src").ifBlank { img.attr("data-lazy-src").ifBlank { img.attr("src") } }
+            img.attr("data-src")
+                .ifBlank { img.attr("data-lazy-src") }
+                .ifBlank { img.attr("data-original") }
+                .ifBlank { img.attr("data-image") }
+                .ifBlank { img.attr("src") }
         }?.let { fixUrlNull(it) }
-        val type = if (title.contains("حلقة") || title.contains("مسلسل")) TvType.TvSeries else TvType.Movie
+        val type = if (title.contains("حلقة") || title.contains("مسلسل") || href.contains("series", true) || href.contains("episode", true)) TvType.TvSeries else TvType.Movie
         return if (type == TvType.TvSeries) {
             newTvSeriesSearchResponse(title, href) {
                 posterUrl = poster
@@ -409,6 +427,23 @@ class CimaNowProvider : MainAPI() {
     }.getOrNull()
 
     private fun hostName(url: String): String = runCatching { URI(url).host?.removePrefix("www.") ?: "Server" }.getOrDefault("Server")
+
+    private fun appendPage(url: String, page: Int): String =
+        when {
+            page <= 1 -> url
+            url.contains("?") -> "$url&page=$page"
+            url.endsWith("/") -> "${url}page/$page/"
+            else -> "$url/page/$page/"
+        }
+
+    private fun looksLikeTitleUrl(url: String): Boolean {
+        val lower = url.lowercase()
+        if (!lower.startsWith(mainUrl) && !lower.startsWith("/")) return false
+        return listOf(
+            "/watch", "/movie", "/movies", "/film", "/series", "/serie", "/episode",
+            "مشاهدة", "فيلم", "مسلسل", "حلقة"
+        ).any { lower.contains(it) }
+    }
 
     private fun String.encodeUrl(): String = java.net.URLEncoder.encode(this, "UTF-8")
 
