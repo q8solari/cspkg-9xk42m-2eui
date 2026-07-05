@@ -1,0 +1,21 @@
+[
+    {
+        "fileHash": "sha256-6189685451ca72af4fcb031a138c7357cb5dfbc7a6a25c91860eb026e181146e",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/q8solari/cspkg-9xk42m-2eui",
+        "fileSize": 42946,
+        "status": 3,
+        "language": "ar",
+        "authors": [
+            "private"
+        ],
+        "tvTypes": [
+            "Movie",
+            "TvSeries"
+        ],
+        "version": 1,
+        "internalName": "CimaNowProvider2",
+        "url": "https://raw.githubusercontent.com/q8solari/cspkg-9xk42m-2eui/builds/CimaNow.cs3",
+        "name": "CimaNowProvider2"
+    }
+]

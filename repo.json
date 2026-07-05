@@ -1,0 +1,8 @@
+{
+  "name": "Private",
+  "description": "Personal repo",
+  "manifestVersion": 1,
+  "pluginLists": [
+    "https://raw.githubusercontent.com/q8solari/cspkg-9xk42m-2eui/builds/plugins.json"
+  ]
+}
