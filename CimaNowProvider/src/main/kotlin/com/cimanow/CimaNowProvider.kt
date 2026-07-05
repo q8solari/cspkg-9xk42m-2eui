@@ -328,7 +328,7 @@ class CimaNowProvider : MainAPI() {
         }
     }
 
-    private fun addDirectVideoLink(
+    private suspend fun addDirectVideoLink(
         url: String,
         name: String,
         quality: Int,
