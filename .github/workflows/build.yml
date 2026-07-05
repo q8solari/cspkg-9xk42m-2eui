@@ -1,0 +1,77 @@
+name: Build
+
+concurrency:
+  group: build
+  cancel-in-progress: true
+
+on:
+  push:
+    branches:
+      - master
+      - main
+    paths-ignore:
+      - "*.md"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          path: src
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.12
+
+      - name: Build plugin
+        run: |
+          cd "$GITHUB_WORKSPACE/src"
+          gradle CimaNowProvider:make makePluginsJson
+
+      - name: Prepare builds branch
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/builds"
+          cp "$GITHUB_WORKSPACE"/src/CimaNowProvider/build/*.cs3 "$GITHUB_WORKSPACE/builds/CimaNow.cs3"
+          cp "$GITHUB_WORKSPACE/src/build/plugins.json" "$GITHUB_WORKSPACE/builds/plugins.json"
+          sed -i 's/CimaNowProvider\.cs3/CimaNow.cs3/g' "$GITHUB_WORKSPACE/builds/plugins.json"
+          cd "$GITHUB_WORKSPACE/builds"
+          cat > repo.json <<EOF
+          {
+            "name": "Private",
+            "description": "Personal repo",
+            "manifestVersion": 1,
+            "pluginLists": [
+              "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/builds/plugins.json"
+            ]
+          }
+          EOF
+
+      - name: Publish builds
+        run: |
+          cd "$GITHUB_WORKSPACE/builds"
+          git init
+          git checkout -b builds
+          git config user.email "actions@github.com"
+          git config user.name "GitHub Actions"
+          git add repo.json plugins.json CimaNow.cs3
+          git commit -m "Build $GITHUB_SHA"
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push --force origin builds
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
