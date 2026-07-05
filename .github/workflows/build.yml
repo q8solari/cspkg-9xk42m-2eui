@@ -42,14 +42,14 @@ jobs:
       - name: Build plugin
         run: |
           cd "$GITHUB_WORKSPACE/src"
-          gradle CimaNowProvider:make makePluginsJson
+          gradle CimaNowProvider2:make makePluginsJson
 
       - name: Prepare builds branch
         run: |
           mkdir -p "$GITHUB_WORKSPACE/builds"
-          cp "$GITHUB_WORKSPACE"/src/CimaNowProvider/build/*.cs3 "$GITHUB_WORKSPACE/builds/CimaNow.cs3"
+          cp "$GITHUB_WORKSPACE"/src/CimaNowProvider2/build/*.cs3 "$GITHUB_WORKSPACE/builds/CimaNow.cs3"
           cp "$GITHUB_WORKSPACE/src/build/plugins.json" "$GITHUB_WORKSPACE/builds/plugins.json"
-          sed -i 's/CimaNowProvider\.cs3/CimaNow.cs3/g' "$GITHUB_WORKSPACE/builds/plugins.json"
+          sed -i -e 's/CimaNowProvider2\.cs3/CimaNow.cs3/g' -e 's/CimaNowProvider\.cs3/CimaNow.cs3/g' "$GITHUB_WORKSPACE/builds/plugins.json"
           cd "$GITHUB_WORKSPACE/builds"
           cat > repo.json <<EOF
           {
