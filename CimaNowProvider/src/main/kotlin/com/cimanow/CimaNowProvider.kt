@@ -15,14 +15,17 @@ import com.lagradost.cloudstream3.fixUrl
 import com.lagradost.cloudstream3.fixUrlNull
 import com.lagradost.cloudstream3.mainPageOf
 import com.lagradost.cloudstream3.newHomePageResponse
+import com.lagradost.cloudstream3.newEpisode
 import com.lagradost.cloudstream3.newMovieLoadResponse
 import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesSearchResponse
 import com.lagradost.cloudstream3.utils.AppUtils.parseJson
+import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.loadExtractor
+import com.lagradost.cloudstream3.utils.newExtractorLink
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
@@ -98,7 +101,12 @@ class CimaNowProvider : MainAPI() {
 
         return if (isSeries) {
             newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes.ifEmpty {
-                listOf(Episode(watchUrl ?: url, name = title, season = 1, episode = 1, posterUrl = poster))
+                listOf(newEpisode(watchUrl ?: url) {
+                    name = title
+                    season = 1
+                    episode = 1
+                    posterUrl = poster
+                })
             }) {
                 this.posterUrl = poster
                 this.plot = description
@@ -161,7 +169,12 @@ class CimaNowProvider : MainAPI() {
         return if (type == TvType.TvSeries) {
             newTvSeriesLoadResponse(title, url, TvType.TvSeries, item.episodes.mapNotNull { ep ->
                 val data = ep.data ?: ep.url ?: return@mapNotNull null
-                Episode(data, name = ep.name, season = ep.season ?: 1, episode = ep.episode, posterUrl = item.poster)
+                newEpisode(data) {
+                    name = ep.name
+                    season = ep.season ?: 1
+                    episode = ep.episode
+                    posterUrl = item.poster
+                }
             }) {
                 posterUrl = item.poster?.let { fixUrl(it) }
                 plot = item.description
@@ -227,13 +240,12 @@ class CimaNowProvider : MainAPI() {
             .mapNotNull { ep ->
                 val href = getHref(ep) ?: return@mapNotNull null
                 val text = ep.text().ifBlank { ep.attr("title") }
-                Episode(
-                    href,
-                    name = cleanTitle(text),
-                    season = parseSeasonNumber(text) ?: 1,
-                    episode = parseEpisodeNumber(text),
+                newEpisode(href) {
+                    name = cleanTitle(text)
+                    season = parseSeasonNumber(text) ?: 1
+                    episode = parseEpisodeNumber(text)
                     posterUrl = ep.selectFirst("img")?.attr("src")?.let { fixUrlNull(it) }
-                )
+                }
             }.distinctBy { it.data }.sortedWith(compareBy({ it.season ?: 1 }, { it.episode ?: 0 }, { it.name }))
 
     private fun findWatchUrl(doc: Document, fallback: String): String? =
@@ -324,14 +336,15 @@ class CimaNowProvider : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ) {
         callback(
-            ExtractorLink(
+            newExtractorLink(
                 source = name,
                 name = name,
                 url = fixUrl(url),
-                referer = headers["Referer"] ?: mainUrl,
-                quality = quality,
-                isM3u8 = url.contains(".m3u8")
-            )
+                type = if (url.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
+            ) {
+                referer = headers["Referer"] ?: mainUrl
+                this.quality = quality
+            }
         )
     }
 
